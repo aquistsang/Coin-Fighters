@@ -4,7 +4,7 @@
  */
 
 import { AnimationManager } from './animation-manager.js';
-import { FIGHTER_STATE, HEALTH } from './constants.js';
+import { FIGHTER_STATE, HEALTH, TIMING } from './constants.js';
 
 export class Fighter {
   /**
@@ -19,18 +19,30 @@ export class Fighter {
    */
   constructor(opts) {
     this.name = opts.name;
+    this.homeX = opts.x;
     this.x = opts.x;
     this.y = opts.y;
     this.facing = opts.facing;
     this.drawScale = opts.drawScale;
     this.isPlayer = opts.isPlayer;
 
-    this.health = HEALTH.MAX;
-    this.maxHealth = HEALTH.MAX;
+    this.health = HEALTH.MAX_BOXES;
+    this.maxHealth = HEALTH.MAX_BOXES;
     this.state = FIGHTER_STATE.IDLE;
     this.anim = new AnimationManager();
     this.flashTimer = 0;
     this.hitFlash = 0;
+
+    /** @type {null | {
+     *   elapsed: number,
+     *   total: number,
+     *   impactAt: number,
+     *   impactFired: boolean,
+     *   keyframes: Array<{ t: number, x: number }>,
+     *   onImpact?: () => void,
+     *   onComplete?: () => void,
+     * }} */
+    this.motion = null;
   }
 
   /** @param {Record<string, import('./assets.js').AnimationDef>} defs */
@@ -46,25 +58,119 @@ export class Fighter {
     this.anim.update(dt);
     if (this.flashTimer > 0) this.flashTimer = Math.max(0, this.flashTimer - dt);
     if (this.hitFlash > 0) this.hitFlash = Math.max(0, this.hitFlash - dt);
+    this._updateMotion(dt);
+  }
+
+  /** @param {number} dt */
+  _updateMotion(dt) {
+    if (!this.motion) return;
+
+    this.motion.elapsed += dt;
+    const { elapsed, keyframes, impactAt } = this.motion;
+
+    // Interpolate position along kick lunge keyframes
+    let a = keyframes[0];
+    let b = keyframes[keyframes.length - 1];
+    for (let i = 0; i < keyframes.length - 1; i++) {
+      if (elapsed >= keyframes[i].t && elapsed <= keyframes[i + 1].t) {
+        a = keyframes[i];
+        b = keyframes[i + 1];
+        break;
+      }
+      if (elapsed > keyframes[i + 1].t) {
+        a = keyframes[i + 1];
+        b = keyframes[i + 1];
+      }
+    }
+
+    const span = Math.max(1, b.t - a.t);
+    const u = Math.max(0, Math.min(1, (elapsed - a.t) / span));
+    const eased = easeInOutCubic(u);
+    this.x = a.x + (b.x - a.x) * eased;
+
+    if (!this.motion.impactFired && elapsed >= impactAt) {
+      this.motion.impactFired = true;
+      this.motion.onImpact?.();
+    }
+
+    if (elapsed >= this.motion.total) {
+      const done = this.motion.onComplete;
+      this.motion = null;
+      this.x = this.homeX;
+      this.setIdle();
+      done?.();
+    }
   }
 
   setIdle() {
     this.state = FIGHTER_STATE.IDLE;
+    this.x = this.homeX;
     this.anim.play('idle', { loop: true });
   }
 
   /**
-   * @param {() => void} [onComplete]
+   * Win-bet kick: wind up, lunge toward target, hold contact, recover.
+   * @param {number} targetX — opponent x (kick aims here)
+   * @param {{ onImpact?: () => void, onComplete?: () => void }} [opts]
    */
-  playAttack(onComplete) {
+  playKickAttack(targetX, opts = {}) {
+    this.state = FIGHTER_STATE.ATTACKING;
+    // SOUND: play kick whoosh SFX here
+    // SOUND: optional voice line
+
+    const windup = TIMING.KICK_WINDUP;
+    const lunge = TIMING.KICK_LUNGE;
+    const hold = TIMING.KICK_HOLD;
+    const recover = TIMING.KICK_RECOVER;
+    const total = windup + lunge + hold + recover;
+    const reachX = targetX - this.facing * TIMING.KICK_REACH;
+
+    this.motion = {
+      elapsed: 0,
+      total,
+      impactAt: windup + lunge,
+      impactFired: false,
+      onImpact: opts.onImpact,
+      onComplete: opts.onComplete,
+      keyframes: [
+        { t: 0, x: this.homeX },
+        { t: windup, x: this.homeX - this.facing * 28 },
+        { t: windup + lunge, x: reachX },
+        { t: windup + lunge + hold, x: reachX },
+        { t: total, x: this.homeX },
+      ],
+    };
+
+    this.anim.play('attack', { loop: false });
+  }
+
+  /**
+   * Generic attack (used by opponent / fallback).
+   * @param {(() => void) | { onImpact?: () => void, onComplete?: () => void }} [arg]
+   */
+  playAttack(arg) {
+    const opts = typeof arg === 'function' ? { onComplete: arg } : arg ?? {};
     this.state = FIGHTER_STATE.ATTACKING;
     // SOUND: play attack whoosh / punch SFX here
-    // SOUND: optional voice line — "hyaa!"
+
+    let impactFired = false;
+    const fireImpact = () => {
+      if (impactFired) return;
+      impactFired = true;
+      opts.onImpact?.();
+    };
+
+    const duration = TIMING.ATTACK_DURATION;
+    if (opts.onImpact) {
+      window.setTimeout(fireImpact, Math.floor(duration * 0.45));
+    }
+
     this.anim.play('attack', {
       loop: false,
       onComplete: () => {
+        fireImpact();
         this.setIdle();
-        onComplete?.();
+        opts.onComplete?.();
       },
     });
   }
@@ -76,7 +182,6 @@ export class Fighter {
     this.state = FIGHTER_STATE.HIT_REACTION;
     this.hitFlash = 120;
     // SOUND: play hit / impact SFX here
-    // SOUND: optional grunt voice line
     this.anim.play('hit', {
       loop: false,
       onComplete: () => {
@@ -87,14 +192,11 @@ export class Fighter {
   }
 
   /**
-   * Placeholder ultra move — flesh this out when you implement specials.
    * @param {() => void} [onComplete]
    */
   playSpecial(onComplete) {
     this.state = FIGHTER_STATE.SPECIAL;
     this.flashTimer = 200;
-    // SOUND: play special / ultra SFX here
-    // SOUND: optional special voice line
     this.anim.play('special', {
       loop: false,
       onComplete: () => {
@@ -105,16 +207,18 @@ export class Fighter {
   }
 
   /**
-   * @param {number} amount
-   * @returns {number} remaining health
+   * @param {number} [amount]
+   * @returns {number}
    */
-  takeDamage(amount) {
+  takeDamage(amount = 1) {
     this.health = Math.max(0, this.health - amount);
     return this.health;
   }
 
   reset() {
     this.health = this.maxHealth;
+    this.motion = null;
+    this.x = this.homeX;
     this.setIdle();
     this.flashTimer = 0;
     this.hitFlash = 0;
@@ -127,4 +231,9 @@ export class Fighter {
       this.state === FIGHTER_STATE.SPECIAL
     );
   }
+}
+
+/** @param {number} t */
+function easeInOutCubic(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }

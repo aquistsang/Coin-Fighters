@@ -5,7 +5,7 @@
  * Streak of 5 HI wins → triggerSpecialAttack() placeholder.
  */
 
-import { GAME_PHASE, HEALTH, STREAK, TIMING } from './constants.js';
+import { GAME_PHASE, HEALTH, MULTIPLIER, STREAK, STAGE, TIMING } from './constants.js';
 import { Fighter } from './fighter.js';
 import { EffectsSystem } from './effects.js';
 import { InputHandler } from './input.js';
@@ -38,25 +38,29 @@ export class Game {
     this.phase = GAME_PHASE.BETTING;
     this.streak = 0;
     this.round = 1;
+    this.multiplier = MULTIPLIER.START;
+    /** @type {Array<{ value: number, won: boolean }>} */
+    this.multiplierHistory = [];
     this.lastTime = 0;
     this.running = false;
+    this._opponentDepleted = false;
 
-    // Grounded near the arena floor line
+    // Feet planted on the stone floor tiles
     this.player = new Fighter({
       name: 'YOU',
-      x: 260,
-      y: 430,
+      x: STAGE.PLAYER_X,
+      y: STAGE.FLOOR_Y,
       facing: 1,
-      drawScale: 0.42,
+      drawScale: STAGE.FIGHTER_SCALE,
       isPlayer: true,
     });
 
     this.opponent = new Fighter({
       name: 'CPU',
-      x: 700,
-      y: 430,
+      x: STAGE.OPPONENT_X,
+      y: STAGE.FLOOR_Y,
       facing: -1,
-      drawScale: 0.42,
+      drawScale: STAGE.FIGHTER_SCALE,
       isPlayer: false,
     });
 
@@ -75,7 +79,9 @@ export class Game {
     if (!assets.playerFighter || !assets.opponentFighter) {
       throw new Error('Fighter sprites failed to load');
     }
-    this.player.registerAnimations(createPlayerAnimations(assets.playerFighter));
+    this.player.registerAnimations(
+      createPlayerAnimations(assets.playerFighter, assets.playerKick)
+    );
     this.opponent.registerAnimations(createOpponentAnimations(assets.opponentFighter));
     // SOUND: start ambient / idle music loop here
     this._syncHud();
@@ -100,6 +106,8 @@ export class Game {
       effects: this.effects,
       streak: this.streak,
       round: this.round,
+      multiplier: this.multiplier,
+      multiplierHistory: this.multiplierHistory,
     });
 
     requestAnimationFrame((t) => this._frame(t));
@@ -145,49 +153,68 @@ export class Game {
     } else {
       this.streak = 0;
     }
+
+    // Escalate bet multiplier, then log the won value into history
+    this.multiplier = Math.max(
+      MULTIPLIER.START,
+      this.multiplier * MULTIPLIER.WIN_FACTOR
+    );
+    this._pushMultiplierHistory(this.multiplier, true);
     this._syncHud();
 
-    this.player.playAttack(() => {
-      const dmg = HEALTH.HI_DAMAGE;
-      this.opponent.takeDamage(dmg);
-      this.opponent.playHitReaction();
+    this.player.playKickAttack(this.opponent.x, {
+      onImpact: () => {
+        this.opponent.takeDamage(HEALTH.WIN_COST);
+        this.opponent.playHitReaction();
 
-      this.effects.spawnSparks(this.opponent.x, this.opponent.y - 160, 16);
-      this.effects.spawnDamageNumber(this.opponent.x, this.opponent.y - 220, dmg, 'dealt');
-      this.effects.triggerFlash(0.4, 100);
-      this.effects.triggerShake(6, 160);
-      // SOUND: play impact / hit confirm SFX here
-
-      this._afterResolve();
+        this.effects.spawnSparks(this.opponent.x - 40, this.opponent.y - 180, 18);
+        this.effects.spawnDamageNumber(
+          this.opponent.x,
+          this.opponent.y - 220,
+          HEALTH.WIN_COST,
+          'dealt'
+        );
+        this.effects.triggerFlash(0.45, 110);
+        this.effects.triggerShake(8, 180);
+        // SOUND: play kick impact SFX here
+      },
+      onComplete: () => this._afterResolve(),
     });
   }
 
   _resolveLoss() {
     this.streak = 0;
+    // Bust: log current multi, then reset center display to 1.00x
+    if (this.multiplier > MULTIPLIER.START) {
+      this._pushMultiplierHistory(this.multiplier, false);
+    }
+    this.multiplier = MULTIPLIER.START;
     this._syncHud();
 
-    this.opponent.playAttack(() => {
-      const dmg = HEALTH.LO_DAMAGE;
-      this.player.takeDamage(dmg);
-      this.player.playHitReaction();
+    // Player boxes stay for now — only winning bets chip opponent life
+    this.opponent.playAttack({
+      onImpact: () => {
+        this.player.playHitReaction();
 
-      this.effects.spawnSparks(this.player.x, this.player.y - 160, 14);
-      this.effects.spawnDamageNumber(this.player.x, this.player.y - 220, dmg, 'received');
-      this.effects.triggerFlash(0.35, 90);
-      this.effects.triggerShake(7, 180);
-      // SOUND: play player hurt / block SFX here
-
-      this._afterResolve();
+        this.effects.spawnSparks(this.player.x, this.player.y - 160, 14);
+        this.effects.triggerFlash(0.35, 90);
+        this.effects.triggerShake(7, 180);
+        // SOUND: play player hurt / block SFX here
+      },
+      onComplete: () => this._afterResolve(),
     });
   }
 
   _afterResolve() {
+    // Opponent boxes empty → hook for your next feature (no auto end-screen yet)
     if (this.opponent.health <= 0) {
-      this._endMatch(true);
-      return;
-    }
-    if (this.player.health <= 0) {
-      this._endMatch(false);
+      if (!this._opponentDepleted) {
+        this._opponentDepleted = true;
+        this.onOpponentBoxesDepleted();
+      } else {
+        this.round += 1;
+        this._returnToBetting();
+      }
       return;
     }
 
@@ -202,9 +229,23 @@ export class Game {
   }
 
   /**
+   * Called when the opponent's 5 yellow boxes are all gone.
+   * Leave this for your follow-up event / KO / cash-out flow.
+   */
+  onOpponentBoxesDepleted() {
+    // PLACEHOLDER — implement next beat here (ultra, jackpot, round clear, etc.)
+    console.log('[Casino Fighters] Opponent boxes depleted — hook ready');
+    this.effects.showSpecialBanner(1600);
+    this.effects.triggerFlash(0.6, 220);
+    this.effects.triggerShake(10, 280);
+    // Keep fighting for now so you can wire the next step
+    this.round += 1;
+    this._returnToBetting();
+  }
+
+  /**
    * SPECIAL EVENT — called at 5 consecutive HI wins.
    * Implement your ultra move animation / damage here.
-   * Currently: flashy banner + placeholder special anim on player.
    */
   triggerSpecialAttack() {
     // Leave this function clear for you to expand into a full ultra.
@@ -214,16 +255,20 @@ export class Game {
     // SOUND: special charge / super flash SFX here
 
     this.player.playSpecial(() => {
-      const dmg = HEALTH.SPECIAL_DAMAGE;
-      this.opponent.takeDamage(dmg);
+      this.opponent.takeDamage(HEALTH.WIN_COST);
       this.opponent.playHitReaction(() => {
         this.effects.spawnSparks(this.opponent.x, this.opponent.y - 180, 28);
-        this.effects.spawnDamageNumber(this.opponent.x, this.opponent.y - 240, dmg, 'dealt');
+        this.effects.spawnDamageNumber(
+          this.opponent.x,
+          this.opponent.y - 240,
+          HEALTH.WIN_COST,
+          'dealt'
+        );
         this.effects.triggerFlash(0.7, 180);
         this.effects.triggerShake(12, 300);
 
         if (this.opponent.health <= 0) {
-          this._endMatch(true);
+          this.onOpponentBoxesDepleted();
           return;
         }
         this._returnToBetting();
@@ -248,6 +293,10 @@ export class Game {
   }
 
   _returnToBetting() {
+    // Ensure fighters aren't stuck busy if an anim edged a race
+    if (this.player.state !== 'IDLE' && !this.player.motion) this.player.setIdle();
+    if (this.opponent.state !== 'IDLE' && !this.opponent.motion) this.opponent.setIdle();
+
     this.phase = GAME_PHASE.BETTING;
     this.input.setEnabled(true);
     this._setButtonsDisabled(false);
@@ -258,6 +307,9 @@ export class Game {
     this.opponent.reset();
     this.streak = 0;
     this.round = 1;
+    this.multiplier = MULTIPLIER.START;
+    this.multiplierHistory = [];
+    this._opponentDepleted = false;
     this.phase = GAME_PHASE.BETTING;
     this.effects.sparks = [];
     this.effects.floatTexts = [];
@@ -266,6 +318,17 @@ export class Game {
     this.ui.overlay.hidden = true;
     this._syncHud();
     this._returnToBetting();
+  }
+
+  /**
+   * @param {number} value
+   * @param {boolean} won
+   */
+  _pushMultiplierHistory(value, won) {
+    this.multiplierHistory.unshift({ value, won });
+    if (this.multiplierHistory.length > MULTIPLIER.HISTORY_MAX) {
+      this.multiplierHistory.length = MULTIPLIER.HISTORY_MAX;
+    }
   }
 
   _syncHud() {

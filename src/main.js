@@ -23,9 +23,20 @@ const game = new Game(canvas, {
   streakEl,
 });
 
-game.init().catch((err) => {
-  console.error(err);
-  overlay.hidden = false;
-  overlayTitle.textContent = 'LOAD ERROR';
-  overlaySub.textContent = String(err.message || err);
-});
+overlay.hidden = false;
+overlayTitle.textContent = 'LOADING';
+overlaySub.textContent = 'Loading fight assets…';
+btnRestart.hidden = true;
+
+game.init()
+  .then(() => {
+    overlay.hidden = true;
+    btnRestart.hidden = false;
+  })
+  .catch((err) => {
+    console.error(err);
+    overlay.hidden = false;
+    overlayTitle.textContent = 'LOAD ERROR';
+    overlaySub.textContent = String(err.message || err);
+    btnRestart.hidden = false;
+  });

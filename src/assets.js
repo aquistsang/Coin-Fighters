@@ -18,6 +18,7 @@ import { TIMING } from './constants.js';
  * @property {FrameDef[]} [frames]
  * @property {boolean} [procedural]
  * @property {FrameDef[]} [proceduralFrames]
+ * @property {(HTMLImageElement | HTMLCanvasElement)[]} [frameImages]
  */
 
 /** Classic SF-style idle: 10 frames of weight shift, head bob, knee bend. */
@@ -32,6 +33,18 @@ const IDLE_PROCEDURAL = [
   { offsetX: -2, offsetY: 2, scaleY: 0.988, rotation: -0.005 },
   { offsetX: -2, offsetY: 3, scaleY: 0.985, rotation: -0.006 },
   { offsetX: -1, offsetY: 2, scaleY: 0.988, rotation: -0.004 },
+];
+
+/** Kick pose micro-motion while the body lunges via fighter.x */
+const KICK_PROCEDURAL = [
+  { offsetX: -10, offsetY: 4, scaleX: 0.94, scaleY: 1.05, rotation: -0.02 },
+  { offsetX: -4, offsetY: 0, scaleX: 0.98, scaleY: 1.02, rotation: 0 },
+  { offsetX: 6, offsetY: -6, scaleX: 1.04, scaleY: 0.97, rotation: 0.03 },
+  { offsetX: 14, offsetY: -10, scaleX: 1.08, scaleY: 0.94, rotation: 0.05 },
+  { offsetX: 16, offsetY: -10, scaleX: 1.1, scaleY: 0.93, rotation: 0.06 },
+  { offsetX: 16, offsetY: -8, scaleX: 1.08, scaleY: 0.95, rotation: 0.04 },
+  { offsetX: 6, offsetY: -2, scaleX: 1.02, scaleY: 0.98, rotation: 0.01 },
+  { offsetX: 0, offsetY: 0, scaleX: 1, scaleY: 1, rotation: 0 },
 ];
 
 const ATTACK_PROCEDURAL = [
@@ -65,6 +78,9 @@ const SPECIAL_PROCEDURAL = [
 export const assets = {
   playerFighter: /** @type {HTMLImageElement | HTMLCanvasElement | null} */ (null),
   opponentFighter: /** @type {HTMLImageElement | HTMLCanvasElement | null} */ (null),
+  playerKick: /** @type {HTMLImageElement | HTMLCanvasElement | null} */ (null),
+  stageBackground: /** @type {HTMLImageElement | null} */ (null),
+  hudOverlay: /** @type {HTMLImageElement | HTMLCanvasElement | null} */ (null),
   loaded: false,
 };
 
@@ -73,12 +89,22 @@ export const assets = {
  * @returns {Promise<void>}
  */
 export async function loadAssets() {
-  const raw = await loadImage('assets/player-fighter.png');
-  // Key out near-black studio backdrop so the fighter composites cleanly
-  const player = keyOutBlack(raw, 28);
-  // Mirrored opponent placeholder until you drop a second fighter sprite
+  const [raw, kickRaw, stageBackground, hudRaw] = await Promise.all([
+    loadImage('assets/player-fighter.png'),
+    loadImage('assets/player-kick.png'),
+    loadImage('assets/stage-background.png'),
+    loadImage('assets/hud-overlay.png'),
+  ]);
+
+  // Green-screen idle plate → transparent
+  const player = keyOutGreen(raw);
+  // Kick plate already has alpha; soft-punch leftover pure black fringe
+  const kick = keyOutBlack(kickRaw, 10);
   assets.playerFighter = player;
   assets.opponentFighter = player;
+  assets.playerKick = kick;
+  assets.stageBackground = stageBackground;
+  assets.hudOverlay = hudRaw;
   assets.loaded = true;
 }
 
@@ -90,6 +116,34 @@ function loadImage(src) {
     img.onerror = () => reject(new Error(`Failed to load: ${src}`));
     img.src = src;
   });
+}
+
+/**
+ * Chroma-key green screen (#00FF00 and nearby greens) to transparent.
+ * @param {HTMLImageElement} img
+ * @returns {HTMLCanvasElement}
+ */
+function keyOutGreen(img) {
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  const ctx = c.getContext('2d');
+  if (!ctx) return /** @type {any} */ (img);
+  ctx.drawImage(img, 0, 0);
+  const data = ctx.getImageData(0, 0, c.width, c.height);
+  const px = data.data;
+  for (let i = 0; i < px.length; i += 4) {
+    const r = px[i];
+    const g = px[i + 1];
+    const b = px[i + 2];
+    // Strong green dominates red/blue — matches the studio plate (~23,180,38)
+    const isGreenScreen = g > 90 && g > r * 1.35 && g > b * 1.35 && r < 140 && b < 140;
+    if (isGreenScreen) {
+      px[i + 3] = 0;
+    }
+  }
+  ctx.putImageData(data, 0, 0);
+  return c;
 }
 
 /**
@@ -108,7 +162,12 @@ function keyOutBlack(img, threshold = 24) {
   const data = ctx.getImageData(0, 0, c.width, c.height);
   const px = data.data;
   for (let i = 0; i < px.length; i += 4) {
-    if (px[i] <= threshold && px[i + 1] <= threshold && px[i + 2] <= threshold) {
+    if (
+      px[i + 3] > 16 &&
+      px[i] <= threshold &&
+      px[i + 1] <= threshold &&
+      px[i + 2] <= threshold
+    ) {
       px[i + 3] = 0;
     }
   }
@@ -119,12 +178,64 @@ function keyOutBlack(img, threshold = 24) {
 /**
  * Build animation defs for the player fighter.
  * @param {HTMLImageElement | HTMLCanvasElement} image
+ * @param {HTMLImageElement | HTMLCanvasElement | null} [kickImage]
  * @returns {Record<string, AnimationDef>}
  */
-export function createPlayerAnimations(image) {
+export function createPlayerAnimations(image, kickImage = null) {
+  const frameW = image.width;
+  const frameH = image.height;
+  const kick = kickImage || image;
+
+  return {
+    idle: {
+      image,
+      frameW,
+      frameH,
+      frameDuration: 1000 / TIMING.IDLE_FPS,
+      loop: true,
+      procedural: true,
+      proceduralFrames: IDLE_PROCEDURAL,
+    },
+    attack: {
+      image: kick,
+      frameW: kick.width,
+      frameH: kick.height,
+      frameDuration: TIMING.ATTACK_DURATION / KICK_PROCEDURAL.length,
+      loop: false,
+      procedural: true,
+      proceduralFrames: KICK_PROCEDURAL,
+    },
+    hit: {
+      image,
+      frameW,
+      frameH,
+      frameDuration: TIMING.HIT_DURATION / HIT_PROCEDURAL.length,
+      loop: false,
+      procedural: true,
+      proceduralFrames: HIT_PROCEDURAL,
+    },
+    special: {
+      image,
+      frameW,
+      frameH,
+      frameDuration: TIMING.SPECIAL_DURATION / SPECIAL_PROCEDURAL.length,
+      loop: false,
+      procedural: true,
+      proceduralFrames: SPECIAL_PROCEDURAL,
+    },
+  };
+}
+
+/**
+ * Opponent uses same procedural anims (mirrored at draw time).
+ * @param {HTMLImageElement | HTMLCanvasElement} image
+ * @returns {Record<string, AnimationDef>}
+ */
+export function createOpponentAnimations(image) {
   const frameW = image.width;
   const frameH = image.height;
 
+  // Opponent keeps procedural attack for now (player owns the win video)
   return {
     idle: {
       image,
@@ -163,15 +274,6 @@ export function createPlayerAnimations(image) {
       proceduralFrames: SPECIAL_PROCEDURAL,
     },
   };
-}
-
-/**
- * Opponent uses same procedural anims (mirrored at draw time).
- * @param {HTMLImageElement | HTMLCanvasElement} image
- * @returns {Record<string, AnimationDef>}
- */
-export function createOpponentAnimations(image) {
-  return createPlayerAnimations(image);
 }
 
 /**

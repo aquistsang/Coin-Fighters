@@ -1,9 +1,6 @@
 /**
  * Sprite-based animation manager with frame interpolation.
- * Supports sprite sheets and single-image procedural idle transforms.
- *
- * When you add a sprite sheet, update ANIMATION_DEFS in assets.js with
- * { sheet, frameW, frameH, frames: [{ x, y, duration? }, ...] }
+ * Supports sprite sheets, single-image procedural idle, and video frame sequences.
  */
 
 export class AnimationManager {
@@ -46,7 +43,14 @@ export class AnimationManager {
   /** @param {number} dt ms since last tick */
   update(dt) {
     const def = this.definitions.get(this.currentName);
-    if (!def || def.procedural) {
+    if (!def) return;
+
+    if (def.frameImages?.length) {
+      this._updateSequence(def, dt);
+      return;
+    }
+
+    if (def.procedural) {
       this._updateProcedural(def, dt);
       return;
     }
@@ -75,9 +79,38 @@ export class AnimationManager {
     }
   }
 
+  /**
+   * @param {import('./assets.js').AnimationDef} def
+   * @param {number} dt
+   */
+  _updateSequence(def, dt) {
+    const total = def.frameImages?.length ?? 0;
+    if (!total) return;
+
+    this.elapsed += dt;
+    const duration = def.frameDuration ?? 1000 / 24;
+
+    if (this.elapsed >= duration) {
+      this.elapsed -= duration;
+      this.frameIndex += 1;
+
+      if (this.frameIndex >= total) {
+        if (this.loop) {
+          this.frameIndex = 0;
+        } else {
+          this.frameIndex = total - 1;
+          this.finished = true;
+          this.onComplete?.();
+          this.onComplete = null;
+        }
+      }
+    }
+  }
+
   /** @param {import('./assets.js').AnimationDef | undefined} def @param {number} dt */
   _updateProcedural(def, dt) {
     if (!def?.proceduralFrames?.length) return;
+    if (this.finished) return;
 
     this.elapsed += dt;
     const duration = def.frameDuration ?? 100;
@@ -85,7 +118,19 @@ export class AnimationManager {
 
     if (this.elapsed >= duration) {
       this.elapsed -= duration;
-      this.frameIndex = (this.frameIndex + 1) % total;
+
+      if (this.loop) {
+        this.frameIndex = (this.frameIndex + 1) % total;
+        return;
+      }
+
+      if (this.frameIndex < total - 1) {
+        this.frameIndex += 1;
+      } else {
+        this.finished = true;
+        this.onComplete?.();
+        this.onComplete = null;
+      }
     }
   }
 
@@ -94,6 +139,22 @@ export class AnimationManager {
     const def = this.definitions.get(this.currentName);
     if (!def) {
       return { sx: 0, sy: 0, sw: 0, sh: 0, offsetX: 0, offsetY: 0, scaleX: 1, scaleY: 1, rotation: 0 };
+    }
+
+    if (def.frameImages?.length) {
+      const img = def.frameImages[this.frameIndex] ?? def.frameImages[0];
+      return {
+        sx: 0,
+        sy: 0,
+        sw: img.width,
+        sh: img.height,
+        offsetX: 0,
+        offsetY: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        alpha: 1,
+      };
     }
 
     if (def.procedural && def.proceduralFrames?.length) {
@@ -112,7 +173,22 @@ export class AnimationManager {
       };
     }
 
-    const frame = def.frames[this.frameIndex] ?? def.frames[0];
+    const frame = def.frames?.[this.frameIndex] ?? def.frames?.[0];
+    if (!frame) {
+      return {
+        sx: 0,
+        sy: 0,
+        sw: def.frameW,
+        sh: def.frameH,
+        offsetX: 0,
+        offsetY: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        alpha: 1,
+      };
+    }
+
     return {
       sx: frame.x,
       sy: frame.y,
@@ -132,7 +208,12 @@ export class AnimationManager {
   }
 
   get image() {
-    return this.definitions.get(this.currentName)?.image ?? null;
+    const def = this.definitions.get(this.currentName);
+    if (!def) return null;
+    if (def.frameImages?.length) {
+      return def.frameImages[this.frameIndex] ?? def.frameImages[0];
+    }
+    return def.image ?? null;
   }
 
   isPlaying(name) {

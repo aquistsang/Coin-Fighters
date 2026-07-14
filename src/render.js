@@ -2,7 +2,8 @@
  * Canvas renderer: stage background, fighters, HUD bars, FX overlays.
  */
 
-import { CANVAS, COLORS } from './constants.js';
+import { CANVAS, COLORS, HUD, MULTIPLIER } from './constants.js';
+import { assets } from './assets.js';
 
 export class Renderer {
   /**
@@ -42,6 +43,8 @@ export class Renderer {
    *   effects: import('./effects.js').EffectsSystem,
    *   streak: number,
    *   round: number,
+   *   multiplier: number,
+   *   multiplierHistory: Array<{ value: number, won: boolean }>,
    * }} state
    */
   draw(state) {
@@ -56,16 +59,25 @@ export class Renderer {
     this._drawFighter(ctx, state.opponent);
     this._drawFighter(ctx, state.player);
     this._drawEffects(ctx, state.effects);
-    this._drawHud(ctx, state);
 
     ctx.restore();
+
+    this._drawHud(ctx, state);
+    this._drawMultiplierHistory(ctx, state.multiplierHistory ?? []);
     this._drawScreenFlash(ctx, state.effects);
     this._drawSpecialBanner(ctx, state.effects);
   }
 
   /** @param {CanvasRenderingContext2D} ctx */
   _drawStage(ctx) {
-    // Placeholder fighting stage — swap for a real background image later
+    const bg = assets.stageBackground;
+    if (bg) {
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(bg, 0, 0, CANVAS.WIDTH, CANVAS.HEIGHT);
+      ctx.imageSmoothingEnabled = false;
+      return;
+    }
+
     const g = ctx.createLinearGradient(0, 0, 0, CANVAS.HEIGHT);
     g.addColorStop(0, '#1a1535');
     g.addColorStop(0.45, '#2a1f4e');
@@ -73,43 +85,6 @@ export class Renderer {
     g.addColorStop(1, '#1a100c');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, CANVAS.WIDTH, CANVAS.HEIGHT);
-
-    // Audience / lights hint
-    ctx.fillStyle = 'rgba(212, 175, 55, 0.08)';
-    for (let i = 0; i < 8; i++) {
-      ctx.beginPath();
-      ctx.arc(80 + i * 110, 90, 18 + (i % 3) * 6, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // Floor perspective lines
-    const floorY = 380;
-    ctx.strokeStyle = 'rgba(212, 175, 55, 0.25)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(0, floorY);
-    ctx.lineTo(CANVAS.WIDTH, floorY);
-    ctx.stroke();
-
-    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-    for (let i = 0; i < 12; i++) {
-      const t = i / 11;
-      const x = 40 + t * (CANVAS.WIDTH - 80);
-      ctx.beginPath();
-      ctx.moveTo(CANVAS.WIDTH / 2, floorY);
-      ctx.lineTo(x, CANVAS.HEIGHT);
-      ctx.stroke();
-    }
-
-    // Arena name plaque
-    ctx.fillStyle = 'rgba(0,0,0,0.45)';
-    ctx.fillRect(CANVAS.WIDTH / 2 - 110, 55, 220, 28);
-    ctx.strokeStyle = COLORS.HP_BORDER;
-    ctx.strokeRect(CANVAS.WIDTH / 2 - 110, 55, 220, 28);
-    ctx.fillStyle = '#d4af37';
-    ctx.font = 'bold 14px "Press Start 2P", monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('CASINO ARENA', CANVAS.WIDTH / 2, 74);
   }
 
   /**
@@ -123,9 +98,24 @@ export class Renderer {
     const frame = fighter.anim.getCurrentFrame();
     const sw = frame.sw || img.width;
     const sh = frame.sh || img.height;
-    const scale = fighter.drawScale;
+
+    let scale = fighter.drawScale;
+    const idleDef = fighter.anim.definitions.get('idle');
+    if (fighter.anim.currentName === 'attack' && idleDef?.frameH && sh > 0) {
+      scale = (idleDef.frameH * fighter.drawScale) / sh;
+    }
+
     const drawW = sw * scale * (frame.scaleX || 1);
     const drawH = sh * scale * (frame.scaleY || 1);
+
+    ctx.save();
+    ctx.translate(fighter.x + frame.offsetX * fighter.facing, fighter.y + 2);
+    ctx.scale(1, 0.28);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, drawW * 0.38, drawW * 0.22, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
 
     ctx.save();
     ctx.translate(fighter.x + frame.offsetX * fighter.facing, fighter.y + frame.offsetY);
@@ -139,7 +129,6 @@ export class Renderer {
       ctx.filter = 'brightness(1.6) drop-shadow(0 0 12px #ffd700)';
     }
 
-    // Key out near-black background from the sprite
     ctx.drawImage(
       img,
       frame.sx,
@@ -190,61 +179,167 @@ export class Renderer {
    * @param {{
    *   player: import('./fighter.js').Fighter,
    *   opponent: import('./fighter.js').Fighter,
-   *   streak: number,
-   *   round: number,
+   *   multiplier: number,
    * }} state
    */
   _drawHud(ctx, state) {
-    const barY = 18;
-    const barH = 22;
-    const barW = 360;
-    const pad = 24;
+    const hud = assets.hudOverlay;
+    if (!hud) return;
 
-    // Player HP (left)
-    this._drawHealthBar(ctx, pad, barY, barW, barH, state.player.health / state.player.maxHealth, COLORS.PLAYER_HP, true);
-    ctx.fillStyle = '#eee';
-    ctx.font = '10px "Press Start 2P", monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText(state.player.name, pad, barY + barH + 16);
+    const display = HUD.DISPLAY_SCALE;
+    const drawW = CANVAS.WIDTH * display;
+    const drawH = (HUD.SRC_H / HUD.SRC_W) * drawW;
+    const ox = (CANVAS.WIDTH - drawW) / 2;
+    const oy = 6;
+    const unit = drawW / HUD.SRC_W;
 
-    // Opponent HP (right)
-    const rightX = CANVAS.WIDTH - pad - barW;
-    this._drawHealthBar(ctx, rightX, barY, barW, barH, state.opponent.health / state.opponent.maxHealth, COLORS.OPPONENT_HP, false);
-    ctx.textAlign = 'right';
-    ctx.fillText(state.opponent.name, CANVAS.WIDTH - pad, barY + barH + 16);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(hud, 0, 0, HUD.SRC_W, HUD.SRC_H, ox, oy, drawW, drawH);
+    ctx.imageSmoothingEnabled = false;
 
-    // Round + streak
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#d4af37';
-    ctx.font = '10px "Press Start 2P", monospace';
-    ctx.fillText(`ROUND ${state.round}`, CANVAS.WIDTH / 2, 28);
-    ctx.fillStyle = state.streak >= 4 ? '#ffcc33' : '#aaa';
-    ctx.fillText(`STREAK ${state.streak}`, CANVAS.WIDTH / 2, barY + barH + 16);
+    this._drawLifeBoxes(ctx, HUD.PLAYER_TRACK, state.player.health, unit, ox, oy, true);
+    this._drawLifeBoxes(ctx, HUD.OPPONENT_TRACK, state.opponent.health, unit, ox, oy, false);
+    this._drawMultiplier(ctx, state.multiplier ?? MULTIPLIER.START, unit, ox, oy);
+  }
+
+  /**
+   * Lengthened yellow boxes that fill the full track; outer tips are arrow-shaped.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {{ x: number, y: number, w: number, h: number }} track
+   * @param {number} boxes
+   * @param {number} unit
+   * @param {number} ox
+   * @param {number} oy
+   * @param {boolean} leftSide
+   */
+  _drawLifeBoxes(ctx, track, boxes, unit, ox, oy, leftSide) {
+    const x = ox + track.x * unit;
+    const y = oy + track.y * unit;
+    const w = track.w * unit;
+    const h = track.h * unit;
+    const count = HUD.BOX_COUNT;
+    const gap = HUD.BOX_GAP * unit;
+    const boxW = (w - gap * (count - 1)) / count;
+    const filled = Math.max(0, Math.min(count, Math.round(boxes)));
+    const by = y + h * 0.1;
+    const bh = h * 0.8;
+    const tip = Math.min(boxW * 0.42, bh * 0.9);
+
+    for (let i = 0; i < filled; i++) {
+      // Deplete from outer arrow tip inward — remaining boxes stay near center
+      const slot = leftSide ? count - filled + i : i;
+      const bx = x + slot * (boxW + gap);
+      const tipSide =
+        leftSide && slot === 0 ? 'left' : !leftSide && slot === count - 1 ? 'right' : 'none';
+
+      this._fillLifeBox(ctx, bx, by, boxW, bh, tipSide, tip);
+    }
   }
 
   /**
    * @param {CanvasRenderingContext2D} ctx
-   * @param {number} x @param {number} y @param {number} w @param {number} h
-   * @param {number} ratio @param {string} color @param {boolean} leftAligned
+   * @param {number} bx
+   * @param {number} by
+   * @param {number} bw
+   * @param {number} bh
+   * @param {'left' | 'right' | 'none'} tipSide
+   * @param {number} tip
    */
-  _drawHealthBar(ctx, x, y, w, h, ratio, color, leftAligned) {
-    ctx.fillStyle = COLORS.HP_BG;
-    ctx.fillRect(x, y, w, h);
-    ctx.strokeStyle = COLORS.HP_BORDER;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(x, y, w, h);
-
-    const fillW = Math.max(0, w * Math.min(1, Math.max(0, ratio)));
-    ctx.fillStyle = color;
-    if (leftAligned) {
-      ctx.fillRect(x, y, fillW, h);
+  _fillLifeBox(ctx, bx, by, bw, bh, tipSide, tip) {
+    ctx.beginPath();
+    if (tipSide === 'left') {
+      ctx.moveTo(bx + tip, by);
+      ctx.lineTo(bx + bw, by);
+      ctx.lineTo(bx + bw, by + bh);
+      ctx.lineTo(bx + tip, by + bh);
+      ctx.lineTo(bx, by + bh / 2);
+    } else if (tipSide === 'right') {
+      ctx.moveTo(bx, by);
+      ctx.lineTo(bx + bw - tip, by);
+      ctx.lineTo(bx + bw, by + bh / 2);
+      ctx.lineTo(bx + bw - tip, by + bh);
+      ctx.lineTo(bx, by + bh);
     } else {
-      ctx.fillRect(x + (w - fillW), y, fillW, h);
+      ctx.rect(bx, by, bw, bh);
     }
+    ctx.closePath();
 
-    // Shine
-    ctx.fillStyle = 'rgba(255,255,255,0.18)';
-    ctx.fillRect(x, y, w, h * 0.4);
+    ctx.fillStyle = COLORS.LIFE_BOX_GLOW;
+    ctx.fill();
+
+    const grad = ctx.createLinearGradient(bx, by, bx, by + bh);
+    grad.addColorStop(0, '#ffe98a');
+    grad.addColorStop(0.45, COLORS.LIFE_BOX);
+    grad.addColorStop(1, '#e0a820');
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    ctx.strokeStyle = COLORS.LIFE_BOX_EDGE;
+    ctx.lineWidth = 1.25;
+    ctx.stroke();
+  }
+
+  /**
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {number} multiplier
+   * @param {number} unit
+   * @param {number} ox
+   * @param {number} oy
+   */
+  _drawMultiplier(ctx, multiplier, unit, ox, oy) {
+    const c = HUD.CENTER;
+    const x = ox + c.x * unit;
+    const y = oy + c.y * unit;
+    const w = c.w * unit;
+    const h = c.h * unit;
+    const label = formatMultiplier(multiplier);
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+    ctx.lineWidth = 4;
+    ctx.fillStyle = '#ffe566';
+    const size = Math.max(11, Math.round(15 * unit * (label.length > 5 ? 0.85 : 1)));
+    ctx.font = `bold ${size}px "Press Start 2P", monospace`;
+    ctx.strokeText(label, x + w / 2, y + h / 2);
+    ctx.fillText(label, x + w / 2, y + h / 2);
+  }
+
+  /**
+   * Stacked multiplier history — bottom-left overlay, newest on top.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {Array<{ value: number, won: boolean }>} history
+   */
+  _drawMultiplierHistory(ctx, history) {
+    if (!history.length) return;
+
+    const pad = 14;
+    const rowH = 22;
+    const boxW = 78;
+    const startY = CANVAS.HEIGHT - pad - rowH;
+    const x = pad;
+
+    ctx.save();
+    history.slice(0, MULTIPLIER.HISTORY_MAX).forEach((entry, i) => {
+      const y = startY - i * (rowH + 4);
+      const alpha = Math.max(0.35, 1 - i * 0.08);
+
+      ctx.globalAlpha = alpha * 0.72;
+      ctx.fillStyle = 'rgba(8, 6, 16, 0.78)';
+      ctx.strokeStyle = entry.won ? 'rgba(255, 210, 64, 0.55)' : 'rgba(220, 80, 80, 0.45)';
+      ctx.lineWidth = 1.5;
+      roundRect(ctx, x, y, boxW, rowH, 4);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = entry.won ? '#ffe566' : '#ff7a7a';
+      ctx.font = 'bold 10px "Press Start 2P", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(formatMultiplier(entry.value), x + boxW / 2, y + rowH / 2 + 1);
+    });
+    ctx.restore();
   }
 
   /**
@@ -280,4 +375,31 @@ export class Renderer {
     ctx.strokeText(msg, CANVAS.WIDTH / 2, CANVAS.HEIGHT / 2 + 8);
     ctx.fillText(msg, CANVAS.WIDTH / 2, CANVAS.HEIGHT / 2 + 8);
   }
+}
+
+/** @param {number} value */
+function formatMultiplier(value) {
+  const n = Number(value) || 0;
+  if (n >= 100) return `${Math.round(n)}x`;
+  if (Number.isInteger(n)) return `${n}.00x`;
+  return `${n.toFixed(2)}x`;
+}
+
+/**
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} x
+ * @param {number} y
+ * @param {number} w
+ * @param {number} h
+ * @param {number} r
+ */
+function roundRect(ctx, x, y, w, h, r) {
+  const radius = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + w, y, x + w, y + h, radius);
+  ctx.arcTo(x + w, y + h, x, y + h, radius);
+  ctx.arcTo(x, y + h, x, y, radius);
+  ctx.arcTo(x, y, x + w, y, radius);
+  ctx.closePath();
 }
