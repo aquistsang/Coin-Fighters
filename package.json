@@ -1,0 +1,10 @@
+{
+  "name": "casino-fighters",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Street Fighter-style Hi/Lo casino mini-game",
+  "type": "module",
+  "scripts": {
+    "start": "npx --yes serve . -p 3000"
+  }
+}

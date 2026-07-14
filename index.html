@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Casino Fighters</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles/main.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <h1 class="title">CASINO FIGHTERS</h1>
+      <p class="tagline">Hi / Lo · Street Fighter energy</p>
+    </header>
+
+    <div class="stage-wrap">
+      <canvas id="gameCanvas" width="960" height="540" aria-label="Casino Fighters arena"></canvas>
+
+      <div id="gameOverlay" class="overlay" hidden>
+        <h2 id="overlayTitle">YOU WIN!</h2>
+        <p id="overlaySub"></p>
+        <button type="button" class="btn btn-restart" id="btnRestart">RESTART</button>
+      </div>
+    </div>
+
+    <section class="controls" aria-label="Hi Lo controls">
+      <div class="streak-panel">
+        <span class="streak-label">HI STREAK</span>
+        <span class="streak-value" id="streakValue">0</span>
+        <span class="streak-hint">5 = Special</span>
+      </div>
+
+      <div class="bet-row">
+        <button type="button" class="btn btn-hi" id="btnHi" title="Keyboard 1">
+          <span class="btn-key">1</span>
+          <span class="btn-label">HI</span>
+        </button>
+        <button type="button" class="btn btn-lo" id="btnLo" title="Keyboard 2">
+          <span class="btn-key">2</span>
+          <span class="btn-label">LO</span>
+        </button>
+      </div>
+
+      <p class="help">
+        Bet <strong>HI</strong> or <strong>LO</strong>. Win → your fighter attacks.
+        Lose → you take the hit. Five HI wins in a row unlocks a special.
+      </p>
+    </section>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

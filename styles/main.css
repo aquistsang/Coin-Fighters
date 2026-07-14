@@ -1,0 +1,256 @@
+/* Casino Fighters — arcade HUD */
+
+:root {
+  --bg: #0d0a14;
+  --panel: #161022;
+  --teal: #2c5e77;
+  --gold: #d4af37;
+  --red: #c42828;
+  --green: #2ecc71;
+  --text: #f0e6d2;
+  --muted: #8a7f6e;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(ellipse at 50% 0%, #2a1f4e 0%, transparent 55%),
+    var(--bg);
+  color: var(--text);
+  font-family: "Press Start 2P", system-ui, sans-serif;
+}
+
+body {
+  display: flex;
+  justify-content: center;
+  padding: 16px 12px 32px;
+}
+
+.app {
+  width: min(100%, 980px);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.header {
+  text-align: center;
+}
+
+.title {
+  margin: 0;
+  font-size: clamp(16px, 3.5vw, 28px);
+  letter-spacing: 0.08em;
+  color: var(--gold);
+  text-shadow:
+    0 0 12px rgba(212, 175, 55, 0.45),
+    3px 3px 0 #000;
+}
+
+.tagline {
+  margin: 10px 0 0;
+  font-size: 9px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+.stage-wrap {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  background: #000;
+  border: 3px solid var(--gold);
+  border-radius: 6px;
+  box-shadow:
+    0 0 0 2px #000,
+    0 12px 40px rgba(0, 0, 0, 0.55),
+    inset 0 0 40px rgba(44, 94, 119, 0.25);
+  overflow: hidden;
+}
+
+#gameCanvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: rgba(8, 4, 16, 0.82);
+  z-index: 5;
+  text-align: center;
+  padding: 24px;
+}
+
+.overlay[hidden] {
+  display: none !important;
+}
+
+.overlay h2 {
+  margin: 0;
+  font-size: clamp(18px, 4vw, 32px);
+  text-shadow: 3px 3px 0 #000;
+}
+
+.overlay.win h2 {
+  color: var(--green);
+}
+
+.overlay.lose h2 {
+  color: var(--red);
+}
+
+.overlay p {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.7;
+  color: var(--muted);
+  max-width: 420px;
+}
+
+.controls {
+  background: var(--panel);
+  border: 2px solid rgba(212, 175, 55, 0.4);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.streak-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 10px;
+}
+
+.streak-label {
+  color: var(--muted);
+}
+
+.streak-value {
+  font-size: 18px;
+  color: var(--gold);
+  min-width: 1.5em;
+  text-align: center;
+}
+
+.streak-hint {
+  color: var(--teal);
+  font-size: 8px;
+}
+
+.bet-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.btn {
+  appearance: none;
+  border: 3px solid #000;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  color: #fff;
+  text-shadow: 2px 2px 0 #000;
+  transition: transform 0.08s ease, filter 0.08s ease;
+  position: relative;
+}
+
+.btn:hover:not(:disabled) {
+  filter: brightness(1.12);
+  transform: translateY(-2px);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-hi,
+.btn-lo {
+  min-height: 88px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btn-hi {
+  background: linear-gradient(180deg, #3ecf6e 0%, #1f8f42 100%);
+  box-shadow: 0 4px 0 #0d4a22, inset 0 2px 0 rgba(255, 255, 255, 0.25);
+}
+
+.btn-lo {
+  background: linear-gradient(180deg, #e85a5a 0%, #a01f1f 100%);
+  box-shadow: 0 4px 0 #5a0f0f, inset 0 2px 0 rgba(255, 255, 255, 0.2);
+}
+
+.btn-label {
+  font-size: clamp(20px, 5vw, 32px);
+  letter-spacing: 0.12em;
+}
+
+.btn-key {
+  font-size: 9px;
+  opacity: 0.75;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.btn-restart {
+  background: linear-gradient(180deg, var(--gold) 0%, #a8821e 100%);
+  color: #1a1200;
+  text-shadow: none;
+  font-size: 12px;
+  padding: 14px 28px;
+  box-shadow: 0 4px 0 #5a4508;
+}
+
+.help {
+  margin: 0;
+  font-size: 8px;
+  line-height: 1.8;
+  color: var(--muted);
+  text-align: center;
+}
+
+.help strong {
+  color: var(--gold);
+}
+
+@media (max-width: 560px) {
+  .bet-row {
+    gap: 8px;
+  }
+
+  .btn-hi,
+  .btn-lo {
+    min-height: 72px;
+  }
+}
