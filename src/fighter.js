@@ -114,9 +114,25 @@ export class Fighter {
    * @param {{ onImpact?: () => void, onComplete?: () => void }} [opts]
    */
   playKickAttack(targetX, opts = {}) {
+    this._playLungeAttack(targetX, opts);
+  }
+
+  /**
+   * Loss-round punch: same lunge motion, uses attack sprite (punch pose for 2P).
+   * @param {number} targetX — player x (punch aims here)
+   * @param {{ onImpact?: () => void, onComplete?: () => void }} [opts]
+   */
+  playPunchAttack(targetX, opts = {}) {
+    this._playLungeAttack(targetX, opts);
+  }
+
+  /**
+   * Shared wind-up → lunge → hold → recover toward targetX.
+   * @param {number} targetX
+   * @param {{ onImpact?: () => void, onComplete?: () => void }} [opts]
+   */
+  _playLungeAttack(targetX, opts = {}) {
     this.state = FIGHTER_STATE.ATTACKING;
-    // SOUND: play kick whoosh SFX here
-    // SOUND: optional voice line
 
     const windup = TIMING.KICK_WINDUP;
     const lunge = TIMING.KICK_LUNGE;

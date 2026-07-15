@@ -24,6 +24,8 @@ export const STAGE = {
   PLAYER_X: 250,
   OPPONENT_X: 710,
   FIGHTER_SCALE: 0.46,
+  /** Match 1P on-screen height after crop (~823px content) */
+  OPPONENT_SCALE: 0.39,
 };
 
 export const HEALTH = {
@@ -68,21 +70,25 @@ export const COLORS = {
 
 /**
  * HUD overlay layout — coords are for the 1016×160 source image.
- * Tracks span the full dark bar including outward arrow tips.
  */
 export const HUD = {
   SRC_W: 1016,
   SRC_H: 160,
   /** Draw HUD smaller than full canvas width so it sits in proportion */
-  DISPLAY_SCALE: 0.72,
+  DISPLAY_SCALE: 0.78,
   BOX_COUNT: 5,
-  BOX_GAP: 3,
-  /** 1P (left) life track — includes left arrow tip */
-  PLAYER_TRACK: { x: 48, y: 56, w: 382, h: 44 },
-  /** 2P (right) life track — includes right arrow tip */
-  OPPONENT_TRACK: { x: 586, y: 56, w: 382, h: 44 },
-  /** Center frame for bet multiplier */
-  CENTER: { x: 448, y: 42, w: 120, h: 84 },
+  /** 1P dark trough — mirrored from right bar */
+  PLAYER_TRACK: { x: 29, y: 60, w: 386, h: 44 },
+  /** 2P dark trough — center to tip (source px) */
+  OPPONENT_TRACK: { x: 601, y: 60, w: 386, h: 44 },
+  /** Outer arrow tip depths in source px (left mirrors right) */
+  TIP_DEPTH_LEFT: 18,
+  TIP_DEPTH_RIGHT: 18,
+  /** Tip-box length scales (left mirrors right) */
+  TIP_BOX_SCALE_LEFT: 0.964,
+  TIP_BOX_SCALE_RIGHT: 0.964,
+  /** Center frame for KO label */
+  CENTER: { x: 458, y: 48, w: 100, h: 78 },
 };
 
 export const MULTIPLIER = {
@@ -90,4 +96,7 @@ export const MULTIPLIER = {
   /** Each win doubles the displayed bet multiplier */
   WIN_FACTOR: 2,
   HISTORY_MAX: 8,
+  /** Popup spawn — left side between HUD and player head (below health bar) */
+  POPUP_X: 118,
+  POPUP_Y: 268,
 };

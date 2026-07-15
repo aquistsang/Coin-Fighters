@@ -2,7 +2,7 @@
  * Canvas renderer: stage background, fighters, HUD bars, FX overlays.
  */
 
-import { CANVAS, COLORS, HUD, MULTIPLIER } from './constants.js';
+import { CANVAS, COLORS, HUD } from './constants.js';
 import { assets } from './assets.js';
 
 export class Renderer {
@@ -63,7 +63,8 @@ export class Renderer {
     ctx.restore();
 
     this._drawHud(ctx, state);
-    this._drawMultiplierHistory(ctx, state.multiplierHistory ?? []);
+    // After HUD so multipliers sit in the gap above the fighter head
+    this._drawMultiplierPopups(ctx, state.effects);
     this._drawScreenFlash(ctx, state.effects);
     this._drawSpecialBanner(ctx, state.effects);
   }
@@ -175,6 +176,32 @@ export class Renderer {
   }
 
   /**
+   * Multiplier popups on the left between HUD and character head.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {import('./effects.js').EffectsSystem} fx
+   */
+  _drawMultiplierPopups(ctx, fx) {
+    for (const p of fx.multiplierPopups) {
+      const a = Math.max(0, p.life / p.maxLife);
+      const fade = a > 0.2 ? 1 : a / 0.2;
+      ctx.save();
+      ctx.globalAlpha = fade;
+      ctx.translate(p.x, p.y);
+      ctx.scale(p.scale || 1, p.scale || 1);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = '#000';
+      ctx.fillStyle = p.color;
+      ctx.font = 'bold 22px "Press Start 2P", monospace';
+      ctx.strokeText(p.text, 0, 0);
+      ctx.fillText(p.text, 0, 0);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /**
    * @param {CanvasRenderingContext2D} ctx
    * @param {{
    *   player: import('./fighter.js').Fighter,
@@ -199,11 +226,12 @@ export class Renderer {
 
     this._drawLifeBoxes(ctx, HUD.PLAYER_TRACK, state.player.health, unit, ox, oy, true);
     this._drawLifeBoxes(ctx, HUD.OPPONENT_TRACK, state.opponent.health, unit, ox, oy, false);
-    this._drawMultiplier(ctx, state.multiplier ?? MULTIPLIER.START, unit, ox, oy);
+    this._drawKoLabel(ctx, unit, ox, oy);
   }
 
   /**
-   * Lengthened yellow boxes that fill the full track; outer tips are arrow-shaped.
+   * Yellow life segments that fill the entire track (no gaps).
+   * Outer boxes use an arrow tip so they meet the chrome ends.
    * @param {CanvasRenderingContext2D} ctx
    * @param {{ x: number, y: number, w: number, h: number }} track
    * @param {number} boxes
@@ -213,26 +241,46 @@ export class Renderer {
    * @param {boolean} leftSide
    */
   _drawLifeBoxes(ctx, track, boxes, unit, ox, oy, leftSide) {
+    const count = HUD.BOX_COUNT;
+    const filled = Math.max(0, Math.min(count, Math.round(boxes)));
+    if (filled <= 0) return;
+
     const x = ox + track.x * unit;
     const y = oy + track.y * unit;
     const w = track.w * unit;
     const h = track.h * unit;
-    const count = HUD.BOX_COUNT;
-    const gap = HUD.BOX_GAP * unit;
-    const boxW = (w - gap * (count - 1)) / count;
-    const filled = Math.max(0, Math.min(count, Math.round(boxes)));
-    const by = y + h * 0.1;
-    const bh = h * 0.8;
-    const tip = Math.min(boxW * 0.42, bh * 0.9);
+
+    // Per-slot widths — tip box can be shorter; others share the rest
+    /** @type {number[]} */
+    const widths = [];
+    const tipSlot = leftSide ? 0 : count - 1;
+    const tipScale = leftSide
+      ? (HUD.TIP_BOX_SCALE_LEFT ?? 1)
+      : (HUD.TIP_BOX_SCALE_RIGHT ?? 1);
+    const tipW = (w / count) * tipScale;
+    const otherW = (w - tipW) / (count - 1);
+    for (let s = 0; s < count; s++) {
+      widths.push(s === tipSlot ? tipW : otherW);
+    }
+
+    /** @type {number[]} */
+    const starts = [];
+    let cursor = x;
+    for (let s = 0; s < count; s++) {
+      starts.push(cursor);
+      cursor += widths[s];
+    }
+
+    const tipDepth = leftSide ? HUD.TIP_DEPTH_LEFT : HUD.TIP_DEPTH_RIGHT;
 
     for (let i = 0; i < filled; i++) {
-      // Deplete from outer arrow tip inward — remaining boxes stay near center
+      // Deplete from outer tip inward — remaining boxes stay near center
       const slot = leftSide ? count - filled + i : i;
-      const bx = x + slot * (boxW + gap);
+      const bw = widths[slot];
+      const tip = Math.min(tipDepth * unit, bw * 0.55);
       const tipSide =
         leftSide && slot === 0 ? 'left' : !leftSide && slot === count - 1 ? 'right' : 'none';
-
-      this._fillLifeBox(ctx, bx, by, boxW, bh, tipSide, tip);
+      this._fillLifeBox(ctx, starts[slot], y, bw, h, tipSide, tip);
     }
   }
 
@@ -264,9 +312,6 @@ export class Renderer {
     }
     ctx.closePath();
 
-    ctx.fillStyle = COLORS.LIFE_BOX_GLOW;
-    ctx.fill();
-
     const grad = ctx.createLinearGradient(bx, by, bx, by + bh);
     grad.addColorStop(0, '#ffe98a');
     grad.addColorStop(0.45, COLORS.LIFE_BOX);
@@ -275,71 +320,39 @@ export class Renderer {
     ctx.fill();
 
     ctx.strokeStyle = COLORS.LIFE_BOX_EDGE;
-    ctx.lineWidth = 1.25;
+    ctx.lineWidth = 1;
     ctx.stroke();
   }
 
   /**
+   * Center frame shows KO (classic fighting HUD).
    * @param {CanvasRenderingContext2D} ctx
-   * @param {number} multiplier
    * @param {number} unit
    * @param {number} ox
    * @param {number} oy
    */
-  _drawMultiplier(ctx, multiplier, unit, ox, oy) {
+  _drawKoLabel(ctx, unit, ox, oy) {
     const c = HUD.CENTER;
     const x = ox + c.x * unit;
     const y = oy + c.y * unit;
     const w = c.w * unit;
     const h = c.h * unit;
-    const label = formatMultiplier(multiplier);
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.strokeStyle = 'rgba(0,0,0,0.75)';
-    ctx.lineWidth = 4;
-    ctx.fillStyle = '#ffe566';
-    const size = Math.max(11, Math.round(15 * unit * (label.length > 5 ? 0.85 : 1)));
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.lineWidth = 8;
+    const size = Math.max(31, Math.round(22 * unit * 3 * 0.65));
     ctx.font = `bold ${size}px "Press Start 2P", monospace`;
-    ctx.strokeText(label, x + w / 2, y + h / 2);
-    ctx.fillText(label, x + w / 2, y + h / 2);
-  }
 
-  /**
-   * Stacked multiplier history — bottom-left overlay, newest on top.
-   * @param {CanvasRenderingContext2D} ctx
-   * @param {Array<{ value: number, won: boolean }>} history
-   */
-  _drawMultiplierHistory(ctx, history) {
-    if (!history.length) return;
+    const grad = ctx.createLinearGradient(x, y, x, y + h);
+    grad.addColorStop(0, '#ffe566');
+    grad.addColorStop(0.55, '#ff9a1a');
+    grad.addColorStop(1, '#e04810');
+    ctx.fillStyle = grad;
 
-    const pad = 14;
-    const rowH = 22;
-    const boxW = 78;
-    const startY = CANVAS.HEIGHT - pad - rowH;
-    const x = pad;
-
-    ctx.save();
-    history.slice(0, MULTIPLIER.HISTORY_MAX).forEach((entry, i) => {
-      const y = startY - i * (rowH + 4);
-      const alpha = Math.max(0.35, 1 - i * 0.08);
-
-      ctx.globalAlpha = alpha * 0.72;
-      ctx.fillStyle = 'rgba(8, 6, 16, 0.78)';
-      ctx.strokeStyle = entry.won ? 'rgba(255, 210, 64, 0.55)' : 'rgba(220, 80, 80, 0.45)';
-      ctx.lineWidth = 1.5;
-      roundRect(ctx, x, y, boxW, rowH, 4);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = entry.won ? '#ffe566' : '#ff7a7a';
-      ctx.font = 'bold 10px "Press Start 2P", monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(formatMultiplier(entry.value), x + boxW / 2, y + rowH / 2 + 1);
-    });
-    ctx.restore();
+    ctx.strokeText('KO', x + w / 2, y + h / 2);
+    ctx.fillText('KO', x + w / 2, y + h / 2);
   }
 
   /**
@@ -375,31 +388,4 @@ export class Renderer {
     ctx.strokeText(msg, CANVAS.WIDTH / 2, CANVAS.HEIGHT / 2 + 8);
     ctx.fillText(msg, CANVAS.WIDTH / 2, CANVAS.HEIGHT / 2 + 8);
   }
-}
-
-/** @param {number} value */
-function formatMultiplier(value) {
-  const n = Number(value) || 0;
-  if (n >= 100) return `${Math.round(n)}x`;
-  if (Number.isInteger(n)) return `${n}.00x`;
-  return `${n.toFixed(2)}x`;
-}
-
-/**
- * @param {CanvasRenderingContext2D} ctx
- * @param {number} x
- * @param {number} y
- * @param {number} w
- * @param {number} h
- * @param {number} r
- */
-function roundRect(ctx, x, y, w, h, r) {
-  const radius = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + radius, y);
-  ctx.arcTo(x + w, y, x + w, y + h, radius);
-  ctx.arcTo(x + w, y + h, x, y + h, radius);
-  ctx.arcTo(x, y + h, x, y, radius);
-  ctx.arcTo(x, y, x + w, y, radius);
-  ctx.closePath();
 }

@@ -128,10 +128,10 @@ body {
   background: var(--panel);
   border: 2px solid rgba(212, 175, 55, 0.4);
   border-radius: 8px;
-  padding: 16px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
 }
 
 .streak-panel {
@@ -158,10 +158,42 @@ body {
   font-size: 8px;
 }
 
+.round-history {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 4px 2px;
+  overflow-x: auto;
+}
+
+.round-chip {
+  flex: 0 0 auto;
+  min-width: 28px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 4px;
+  border: 2px solid #000;
+  font-size: 8px;
+  line-height: 20px;
+  text-align: center;
+  color: #fff;
+  text-shadow: 1px 1px 0 #000;
+}
+
+.round-chip.win {
+  background: linear-gradient(180deg, #3ecf6e 0%, #1f8f42 100%);
+}
+
+.round-chip.lose {
+  background: linear-gradient(180deg, #e85a5a 0%, #a01f1f 100%);
+}
+
 .bet-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  gap: 10px;
 }
 
 .btn {
@@ -192,34 +224,35 @@ body {
 
 .btn-hi,
 .btn-lo {
-  min-height: 88px;
+  min-height: 48px;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 10px;
+  padding: 8px 12px;
 }
 
 .btn-hi {
   background: linear-gradient(180deg, #3ecf6e 0%, #1f8f42 100%);
-  box-shadow: 0 4px 0 #0d4a22, inset 0 2px 0 rgba(255, 255, 255, 0.25);
+  box-shadow: 0 3px 0 #0d4a22, inset 0 2px 0 rgba(255, 255, 255, 0.25);
 }
 
 .btn-lo {
   background: linear-gradient(180deg, #e85a5a 0%, #a01f1f 100%);
-  box-shadow: 0 4px 0 #5a0f0f, inset 0 2px 0 rgba(255, 255, 255, 0.2);
+  box-shadow: 0 3px 0 #5a0f0f, inset 0 2px 0 rgba(255, 255, 255, 0.2);
 }
 
 .btn-label {
-  font-size: clamp(20px, 5vw, 32px);
+  font-size: clamp(14px, 3.2vw, 18px);
   letter-spacing: 0.12em;
 }
 
 .btn-key {
-  font-size: 9px;
+  font-size: 8px;
   opacity: 0.75;
   background: rgba(0, 0, 0, 0.35);
-  padding: 4px 8px;
+  padding: 3px 6px;
   border-radius: 4px;
 }
 
@@ -244,6 +277,24 @@ body {
   color: var(--gold);
 }
 
+.rtp-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px 14px;
+  padding: 2px 4px 0;
+  font-size: 7px;
+  line-height: 1.5;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+  word-break: break-all;
+}
+
+.rtp-footer strong {
+  color: #b8a888;
+  font-weight: normal;
+}
+
 @media (max-width: 560px) {
   .bet-row {
     gap: 8px;
@@ -251,6 +302,11 @@ body {
 
   .btn-hi,
   .btn-lo {
-    min-height: 72px;
+    min-height: 44px;
+  }
+
+  .rtp-footer {
+    justify-content: center;
+    text-align: center;
   }
 }

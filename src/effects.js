@@ -8,6 +8,8 @@ export class EffectsSystem {
     this.sparks = [];
     /** @type {Array<{ x: number, y: number, text: string, color: string, life: number, maxLife: number, vy: number }>} */
     this.floatTexts = [];
+    /** @type {Array<{ x: number, y: number, text: string, color: string, life: number, maxLife: number, vy: number, scale: number }>} */
+    this.multiplierPopups = [];
     /** @type {Array<{ life: number, maxLife: number, color: string, strength: number }>} */
     this.flashes = [];
     this.shake = { intensity: 0, duration: 0, elapsed: 0 };
@@ -28,6 +30,15 @@ export class EffectsSystem {
       t.life -= dt;
       t.y += t.vy * (dt / 16);
       return t.life > 0;
+    });
+
+    this.multiplierPopups = this.multiplierPopups.filter((p) => {
+      p.life -= dt;
+      p.y += p.vy * (dt / 16);
+      // Pop in then ease
+      const t = 1 - p.life / p.maxLife;
+      p.scale = t < 0.15 ? 0.6 + (t / 0.15) * 0.55 : 1.05 - Math.min(0.15, (t - 0.15) * 0.2);
+      return p.life > 0;
     });
 
     this.flashes = this.flashes.filter((f) => {
@@ -89,6 +100,29 @@ export class EffectsSystem {
       life: 900,
       maxLife: 900,
       vy: -2.2,
+    });
+  }
+
+  /**
+   * Bet multiplier popup — left side between HUD and fighter head.
+   * @param {number} value
+   * @param {boolean} [won]
+   * @param {{ x?: number, y?: number }} [pos]
+   */
+  spawnMultiplierPopup(value, won = true, pos = {}) {
+    const n = Number(value) || 0;
+    const text =
+      n >= 100 ? `${Math.round(n)}x` : Number.isInteger(n) ? `${n}.00x` : `${n.toFixed(2)}x`;
+
+    this.multiplierPopups.push({
+      x: pos.x ?? 118,
+      y: pos.y ?? 268,
+      text,
+      color: won ? '#ffe566' : '#ff6b6b',
+      life: 1400,
+      maxLife: 1400,
+      vy: -0.4,
+      scale: 0.6,
     });
   }
 

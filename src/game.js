@@ -16,6 +16,10 @@ import {
   createPlayerAnimations,
   createOpponentAnimations,
 } from './assets.js';
+import { loadAudio, playKickSound, playPunchSound, unlockAudio } from './audio.js';
+import { Fairness } from './fairness.js';
+
+const ROUND_HISTORY_MAX = 16;
 
 export class Game {
   /**
@@ -28,6 +32,12 @@ export class Game {
    *   overlayTitle: HTMLElement,
    *   overlaySub: HTMLElement,
    *   streakEl: HTMLElement,
+   *   roundHistoryEl?: HTMLElement,
+   *   rtpPercentEl?: HTMLElement,
+   *   rtpHashEl?: HTMLElement,
+   *   rtpClientEl?: HTMLElement,
+   *   rtpNonceEl?: HTMLElement,
+   *   rtpLastEl?: HTMLElement,
    * }} ui
    */
   constructor(canvas, ui) {
@@ -35,12 +45,15 @@ export class Game {
     this.ui = ui;
     this.renderer = new Renderer(canvas);
     this.effects = new EffectsSystem();
+    this.fairness = new Fairness();
     this.phase = GAME_PHASE.BETTING;
     this.streak = 0;
     this.round = 1;
     this.multiplier = MULTIPLIER.START;
     /** @type {Array<{ value: number, won: boolean }>} */
     this.multiplierHistory = [];
+    /** @type {Array<'W' | 'L'>} */
+    this.roundHistory = [];
     this.lastTime = 0;
     this.running = false;
     this._opponentDepleted = false;
@@ -60,7 +73,7 @@ export class Game {
       x: STAGE.OPPONENT_X,
       y: STAGE.FLOOR_Y,
       facing: -1,
-      drawScale: STAGE.FIGHTER_SCALE,
+      drawScale: STAGE.OPPONENT_SCALE,
       isPlayer: false,
     });
 
@@ -75,14 +88,16 @@ export class Game {
   }
 
   async init() {
-    await loadAssets();
+    await Promise.all([loadAssets(), loadAudio(), this.fairness.initSession()]);
     if (!assets.playerFighter || !assets.opponentFighter) {
       throw new Error('Fighter sprites failed to load');
     }
     this.player.registerAnimations(
       createPlayerAnimations(assets.playerFighter, assets.playerKick)
     );
-    this.opponent.registerAnimations(createOpponentAnimations(assets.opponentFighter));
+    this.opponent.registerAnimations(
+      createOpponentAnimations(assets.opponentFighter, assets.opponentPunch)
+    );
     // SOUND: start ambient / idle music loop here
     this._syncHud();
     this.running = true;
@@ -114,25 +129,23 @@ export class Game {
   }
 
   /**
-   * Hi = player wins the hand (attack). Lo = player loses (gets hit).
-   * Fair 50/50 for now — swap for casino RNG / server seed later.
    * @param {'HI' | 'LO'} choice
    */
-  placeBet(choice) {
+  async placeBet(choice) {
     if (this.phase !== GAME_PHASE.BETTING) return;
     if (this.player.isBusy || this.opponent.isBusy) return;
 
+    unlockAudio();
     this.phase = GAME_PHASE.RESOLVING;
     this.input.setEnabled(false);
     this._setButtonsDisabled(true);
 
-    // True Hi-Lo: card is "high" or "low"; player's pick matches = win
-    const cardIsHigh = Math.random() < 0.5;
+    const { cardIsHigh } = await this.fairness.nextCard();
     const playerWon =
       (choice === 'HI' && cardIsHigh) || (choice === 'LO' && !cardIsHigh);
 
-    // Hint: card outcome for polish later (could show a card flip UI)
     this._lastCard = cardIsHigh ? 'HI' : 'LO';
+    this._syncRtpUi();
 
     setTimeout(() => {
       if (playerWon) {
@@ -147,23 +160,28 @@ export class Game {
    * @param {'HI' | 'LO'} choice
    */
   _resolveWin(choice) {
-    // Only HI bets count toward the consecutive-win special streak
+    this._pushRoundHistory('W');
+
     if (choice === 'HI') {
       this.streak += 1;
     } else {
       this.streak = 0;
     }
 
-    // Escalate bet multiplier, then log the won value into history
     this.multiplier = Math.max(
       MULTIPLIER.START,
       this.multiplier * MULTIPLIER.WIN_FACTOR
     );
     this._pushMultiplierHistory(this.multiplier, true);
+    this.effects.spawnMultiplierPopup(this.multiplier, true, {
+      x: MULTIPLIER.POPUP_X,
+      y: MULTIPLIER.POPUP_Y,
+    });
     this._syncHud();
 
     this.player.playKickAttack(this.opponent.x, {
       onImpact: () => {
+        playKickSound();
         this.opponent.takeDamage(HEALTH.WIN_COST);
         this.opponent.playHitReaction();
 
@@ -176,30 +194,32 @@ export class Game {
         );
         this.effects.triggerFlash(0.45, 110);
         this.effects.triggerShake(8, 180);
-        // SOUND: play kick impact SFX here
       },
       onComplete: () => this._afterResolve(),
     });
   }
 
   _resolveLoss() {
+    this._pushRoundHistory('L');
     this.streak = 0;
-    // Bust: log current multi, then reset center display to 1.00x
     if (this.multiplier > MULTIPLIER.START) {
       this._pushMultiplierHistory(this.multiplier, false);
+      this.effects.spawnMultiplierPopup(this.multiplier, false, {
+        x: MULTIPLIER.POPUP_X,
+        y: MULTIPLIER.POPUP_Y,
+      });
     }
     this.multiplier = MULTIPLIER.START;
     this._syncHud();
 
-    // Player boxes stay for now — only winning bets chip opponent life
-    this.opponent.playAttack({
+    this.opponent.playPunchAttack(this.player.x, {
       onImpact: () => {
+        playPunchSound();
         this.player.playHitReaction();
 
-        this.effects.spawnSparks(this.player.x, this.player.y - 160, 14);
+        this.effects.spawnSparks(this.player.x + 40, this.player.y - 160, 14);
         this.effects.triggerFlash(0.35, 90);
         this.effects.triggerShake(7, 180);
-        // SOUND: play player hurt / block SFX here
       },
       onComplete: () => this._afterResolve(),
     });
@@ -309,13 +329,16 @@ export class Game {
     this.round = 1;
     this.multiplier = MULTIPLIER.START;
     this.multiplierHistory = [];
+    this.roundHistory = [];
     this._opponentDepleted = false;
     this.phase = GAME_PHASE.BETTING;
     this.effects.sparks = [];
     this.effects.floatTexts = [];
+    this.effects.multiplierPopups = [];
     this.effects.flashes = [];
     this.effects.specialBanner.active = false;
     this.ui.overlay.hidden = true;
+    this.fairness.initSession().then(() => this._syncHud());
     this._syncHud();
     this._returnToBetting();
   }
@@ -331,9 +354,45 @@ export class Game {
     }
   }
 
+  /** @param {'W' | 'L'} result */
+  _pushRoundHistory(result) {
+    this.roundHistory.push(result);
+    if (this.roundHistory.length > ROUND_HISTORY_MAX) {
+      this.roundHistory.shift();
+    }
+  }
+
   _syncHud() {
     if (this.ui.streakEl) {
       this.ui.streakEl.textContent = String(this.streak);
+    }
+    this._syncRoundHistoryUi();
+    this._syncRtpUi();
+  }
+
+  _syncRoundHistoryUi() {
+    const el = this.ui.roundHistoryEl;
+    if (!el) return;
+    el.innerHTML = '';
+    for (const result of this.roundHistory) {
+      const chip = document.createElement('span');
+      chip.className = `round-chip ${result === 'W' ? 'win' : 'lose'}`;
+      chip.textContent = result;
+      el.appendChild(chip);
+    }
+  }
+
+  _syncRtpUi() {
+    const f = this.fairness;
+    if (this.ui.rtpPercentEl) this.ui.rtpPercentEl.textContent = `${f.rtpPercent}%`;
+    if (this.ui.rtpHashEl) this.ui.rtpHashEl.textContent = f.shortHash();
+    if (this.ui.rtpClientEl) this.ui.rtpClientEl.textContent = f.shortClient();
+    if (this.ui.rtpNonceEl) this.ui.rtpNonceEl.textContent = String(f.nonce);
+    if (this.ui.rtpLastEl) {
+      this.ui.rtpLastEl.textContent =
+        f.lastRoll == null
+          ? '—'
+          : `${f.lastRoll.toFixed(4)} → ${f.lastOutcome}`;
     }
   }
 

@@ -78,6 +78,7 @@ const SPECIAL_PROCEDURAL = [
 export const assets = {
   playerFighter: /** @type {HTMLImageElement | HTMLCanvasElement | null} */ (null),
   opponentFighter: /** @type {HTMLImageElement | HTMLCanvasElement | null} */ (null),
+  opponentPunch: /** @type {HTMLImageElement | HTMLCanvasElement | null} */ (null),
   playerKick: /** @type {HTMLImageElement | HTMLCanvasElement | null} */ (null),
   stageBackground: /** @type {HTMLImageElement | null} */ (null),
   hudOverlay: /** @type {HTMLImageElement | HTMLCanvasElement | null} */ (null),
@@ -89,9 +90,11 @@ export const assets = {
  * @returns {Promise<void>}
  */
 export async function loadAssets() {
-  const [raw, kickRaw, stageBackground, hudRaw] = await Promise.all([
+  const [raw, kickRaw, opponentRaw, punchRaw, stageBackground, hudRaw] = await Promise.all([
     loadImage('assets/player-fighter.png'),
     loadImage('assets/player-kick.png'),
+    loadImage('assets/opponent-fighter.png'),
+    loadImage('assets/opponent-punch.png'),
     loadImage('assets/stage-background.png'),
     loadImage('assets/hud-overlay.png'),
   ]);
@@ -100,8 +103,12 @@ export async function loadAssets() {
   const player = keyOutGreen(raw);
   // Kick plate already has alpha; soft-punch leftover pure black fringe
   const kick = keyOutBlack(kickRaw, 10);
+  // 2P plates → key green, crop empty padding (feet on FLOOR_Y), flip to face 1P
+  const opponent = flipHorizontal(cropToOpaque(keyOutGreen(opponentRaw)));
+  const punch = flipHorizontal(cropToOpaque(keyOutGreen(punchRaw)));
   assets.playerFighter = player;
-  assets.opponentFighter = player;
+  assets.opponentFighter = opponent;
+  assets.opponentPunch = punch;
   assets.playerKick = kick;
   assets.stageBackground = stageBackground;
   assets.hudOverlay = hudRaw;
@@ -139,6 +146,88 @@ function keyOutGreen(img) {
     // Strong green dominates red/blue — matches the studio plate (~23,180,38)
     const isGreenScreen = g > 90 && g > r * 1.35 && g > b * 1.35 && r < 140 && b < 140;
     if (isGreenScreen) {
+      px[i + 3] = 0;
+    }
+  }
+  ctx.putImageData(data, 0, 0);
+  return c;
+}
+
+/**
+ * Crop transparent padding so sprite feet land on the floor anchor.
+ * @param {HTMLCanvasElement} src
+ * @param {number} [pad=2]
+ * @returns {HTMLCanvasElement}
+ */
+function cropToOpaque(src, pad = 2) {
+  const ctx = src.getContext('2d');
+  if (!ctx) return src;
+  const { width: w, height: h } = src;
+  const data = ctx.getImageData(0, 0, w, h).data;
+  let minX = w;
+  let minY = h;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (data[(y * w + x) * 4 + 3] > 8) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < 0) return src;
+  minX = Math.max(0, minX - pad);
+  minY = Math.max(0, minY - pad);
+  maxX = Math.min(w - 1, maxX + pad);
+  maxY = Math.min(h - 1, maxY + pad);
+  const cw = maxX - minX + 1;
+  const ch = maxY - minY + 1;
+  const out = document.createElement('canvas');
+  out.width = cw;
+  out.height = ch;
+  const octx = out.getContext('2d');
+  if (!octx) return src;
+  octx.drawImage(src, minX, minY, cw, ch, 0, 0, cw, ch);
+  return out;
+}
+
+/**
+ * Horizontally flip a canvas / image for left-facing plates.
+ * @param {HTMLImageElement | HTMLCanvasElement} img
+ * @returns {HTMLCanvasElement}
+ */
+function flipHorizontal(img) {
+  const c = document.createElement('canvas');
+  c.width = img.width;
+  c.height = img.height;
+  const ctx = c.getContext('2d');
+  if (!ctx) return /** @type {any} */ (img);
+  ctx.translate(c.width, 0);
+  ctx.scale(-1, 1);
+  ctx.drawImage(img, 0, 0);
+  return c;
+}
+
+/**
+ * Convert near-white studio backdrop to transparent.
+ * @param {HTMLImageElement} img
+ * @param {number} threshold
+ * @returns {HTMLCanvasElement}
+ */
+function keyOutWhite(img, threshold = 245) {
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  const ctx = c.getContext('2d');
+  if (!ctx) return /** @type {any} */ (img);
+  ctx.drawImage(img, 0, 0);
+  const data = ctx.getImageData(0, 0, c.width, c.height);
+  const px = data.data;
+  for (let i = 0; i < px.length; i += 4) {
+    if (px[i] >= threshold && px[i + 1] >= threshold && px[i + 2] >= threshold) {
       px[i + 3] = 0;
     }
   }
@@ -227,15 +316,16 @@ export function createPlayerAnimations(image, kickImage = null) {
 }
 
 /**
- * Opponent uses same procedural anims (mirrored at draw time).
+ * Opponent idle / hit + punch-pose attack (mirrors 1P kick setup).
  * @param {HTMLImageElement | HTMLCanvasElement} image
+ * @param {HTMLImageElement | HTMLCanvasElement | null} [punchImage]
  * @returns {Record<string, AnimationDef>}
  */
-export function createOpponentAnimations(image) {
+export function createOpponentAnimations(image, punchImage = null) {
   const frameW = image.width;
   const frameH = image.height;
+  const punch = punchImage || image;
 
-  // Opponent keeps procedural attack for now (player owns the win video)
   return {
     idle: {
       image,
@@ -247,13 +337,13 @@ export function createOpponentAnimations(image) {
       proceduralFrames: IDLE_PROCEDURAL,
     },
     attack: {
-      image,
-      frameW,
-      frameH,
-      frameDuration: TIMING.ATTACK_DURATION / ATTACK_PROCEDURAL.length,
+      image: punch,
+      frameW: punch.width,
+      frameH: punch.height,
+      frameDuration: TIMING.ATTACK_DURATION / KICK_PROCEDURAL.length,
       loop: false,
       procedural: true,
-      proceduralFrames: ATTACK_PROCEDURAL,
+      proceduralFrames: KICK_PROCEDURAL,
     },
     hit: {
       image,

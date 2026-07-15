@@ -12,6 +12,12 @@ const overlay = /** @type {HTMLElement} */ (document.getElementById('gameOverlay
 const overlayTitle = /** @type {HTMLElement} */ (document.getElementById('overlayTitle'));
 const overlaySub = /** @type {HTMLElement} */ (document.getElementById('overlaySub'));
 const streakEl = /** @type {HTMLElement} */ (document.getElementById('streakValue'));
+const roundHistoryEl = /** @type {HTMLElement} */ (document.getElementById('roundHistory'));
+const rtpPercentEl = /** @type {HTMLElement} */ (document.getElementById('rtpPercent'));
+const rtpHashEl = /** @type {HTMLElement} */ (document.getElementById('rtpHash'));
+const rtpClientEl = /** @type {HTMLElement} */ (document.getElementById('rtpClient'));
+const rtpNonceEl = /** @type {HTMLElement} */ (document.getElementById('rtpNonce'));
+const rtpLastEl = /** @type {HTMLElement} */ (document.getElementById('rtpLast'));
 
 const game = new Game(canvas, {
   btnHi,
@@ -21,6 +27,12 @@ const game = new Game(canvas, {
   overlayTitle,
   overlaySub,
   streakEl,
+  roundHistoryEl,
+  rtpPercentEl,
+  rtpHashEl,
+  rtpClientEl,
+  rtpNonceEl,
+  rtpLastEl,
 });
 
 overlay.hidden = false;
