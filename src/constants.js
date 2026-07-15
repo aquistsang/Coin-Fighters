@@ -35,10 +35,6 @@ export const HEALTH = {
   WIN_COST: 1,
 };
 
-export const STREAK = {
-  SPECIAL_THRESHOLD: 5,
-};
-
 export const TIMING = {
   IDLE_FPS: 10,
   ATTACK_DURATION: 620,
@@ -87,7 +83,7 @@ export const HUD = {
   /** Tip-box length scales (left mirrors right) */
   TIP_BOX_SCALE_LEFT: 0.964,
   TIP_BOX_SCALE_RIGHT: 0.964,
-  /** Center frame for KO label */
+  /** Center frame for live multiplier (Nx) */
   CENTER: { x: 458, y: 48, w: 100, h: 78 },
 };
 
@@ -99,4 +95,12 @@ export const MULTIPLIER = {
   /** Popup spawn — left side between HUD and player head (below health bar) */
   POPUP_X: 118,
   POPUP_Y: 268,
+};
+
+/** Play-money Hi/Lo wallet */
+export const WALLET = {
+  START_BALANCE: 1000,
+  MIN_BET: 1,
+  MAX_BET: 500,
+  DEFAULT_BET: 10,
 };

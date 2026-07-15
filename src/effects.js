@@ -13,7 +13,9 @@ export class EffectsSystem {
     /** @type {Array<{ life: number, maxLife: number, color: string, strength: number }>} */
     this.flashes = [];
     this.shake = { intensity: 0, duration: 0, elapsed: 0 };
-    this.specialBanner = { active: false, life: 0, maxLife: 1800 };
+    this.specialBanner = { active: false, life: 0, maxLife: 1800, text: 'SPECIAL ATTACK READY!' };
+    /** Center Nx bust tint — red flash after breaking a streak */
+    this.multiplierTint = { active: false, life: 0, maxLife: 500 };
   }
 
   /** @param {number} dt */
@@ -59,6 +61,13 @@ export class EffectsSystem {
       this.specialBanner.life -= dt;
       if (this.specialBanner.life <= 0) {
         this.specialBanner.active = false;
+      }
+    }
+
+    if (this.multiplierTint.active) {
+      this.multiplierTint.life -= dt;
+      if (this.multiplierTint.life <= 0) {
+        this.multiplierTint.active = false;
       }
     }
   }
@@ -143,10 +152,22 @@ export class EffectsSystem {
     this.shake.elapsed = 0;
   }
 
-  showSpecialBanner(duration = 1800) {
+  /**
+   * @param {number} [duration]
+   * @param {string} [text]
+   */
+  showSpecialBanner(duration = 1800, text = 'SPECIAL ATTACK READY!') {
     this.specialBanner.active = true;
     this.specialBanner.life = duration;
     this.specialBanner.maxLife = duration;
+    this.specialBanner.text = text;
+  }
+
+  /** Brief red tint on the center multiplier after busting a climb. */
+  triggerMultiplierBustFlash(duration = 500) {
+    this.multiplierTint.active = true;
+    this.multiplierTint.life = duration;
+    this.multiplierTint.maxLife = duration;
   }
 
   getShakeOffset() {

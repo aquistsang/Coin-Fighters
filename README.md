@@ -4,7 +4,7 @@ Street Fighter–inspired web mini-game fused with Hi/Lo casino mechanics.
 
 ## Play
 
-Bet **HI** or **LO** (buttons or keys `1` / `2`). Correct guess → your fighter attacks. Wrong guess → you take the hit. Five consecutive **HI** wins triggers `triggerSpecialAttack()`.
+Bet **HI** or **LO** (buttons or keys `1` / `2`). Correct guess → your fighter attacks and removes an opponent life box. Wrong guess → they hit you and you lose a box. Empty your boxes and you lose.
 
 ## Stack
 
@@ -35,7 +35,3 @@ Drop fighter sprites into `assets/`. The player idle plate is `assets/player-fig
 | `src/effects.js` | Sparks, damage pops, shake |
 | `src/render.js` | Stage + HUD |
 | `src/input.js` | Keyboard + buttons |
-
-## Special attack
-
-Implement your ultra in `Game.triggerSpecialAttack()` inside `src/game.js`.

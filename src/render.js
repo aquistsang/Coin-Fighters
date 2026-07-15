@@ -45,10 +45,20 @@ export class Renderer {
    *   round: number,
    *   multiplier: number,
    *   multiplierHistory: Array<{ value: number, won: boolean }>,
+   *   cutsceneActive?: boolean,
    * }} state
    */
   draw(state) {
     const ctx = this.ctx;
+
+    // Winner video owns the stage — blank the canvas (stage, fighters, HUD)
+    if (state.cutsceneActive) {
+      ctx.clearRect(0, 0, CANVAS.WIDTH, CANVAS.HEIGHT);
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, CANVAS.WIDTH, CANVAS.HEIGHT);
+      return;
+    }
+
     const shake = state.effects.getShakeOffset();
 
     ctx.save();
@@ -73,8 +83,31 @@ export class Renderer {
   _drawStage(ctx) {
     const bg = assets.stageBackground;
     if (bg) {
+      const srcW =
+        bg instanceof HTMLVideoElement ? bg.videoWidth || CANVAS.WIDTH : bg.width || CANVAS.WIDTH;
+      const srcH =
+        bg instanceof HTMLVideoElement
+          ? bg.videoHeight || CANVAS.HEIGHT
+          : bg.height || CANVAS.HEIGHT;
+
+      // Cover-fit so the loop fills the arena without letterboxing
+      const scale = Math.max(CANVAS.WIDTH / srcW, CANVAS.HEIGHT / srcH);
+      const dw = srcW * scale;
+      const dh = srcH * scale;
+      const dx = (CANVAS.WIDTH - dw) / 2;
+      const dy = (CANVAS.HEIGHT - dh) / 2;
+
       ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(bg, 0, 0, CANVAS.WIDTH, CANVAS.HEIGHT);
+      if (bg instanceof HTMLVideoElement) {
+        if (bg.readyState >= 2) {
+          ctx.drawImage(bg, dx, dy, dw, dh);
+        } else {
+          ctx.fillStyle = '#120a18';
+          ctx.fillRect(0, 0, CANVAS.WIDTH, CANVAS.HEIGHT);
+        }
+      } else {
+        ctx.drawImage(bg, dx, dy, dw, dh);
+      }
       ctx.imageSmoothingEnabled = false;
       return;
     }
@@ -226,7 +259,7 @@ export class Renderer {
 
     this._drawLifeBoxes(ctx, HUD.PLAYER_TRACK, state.player.health, unit, ox, oy, true);
     this._drawLifeBoxes(ctx, HUD.OPPONENT_TRACK, state.opponent.health, unit, ox, oy, false);
-    this._drawKoLabel(ctx, unit, ox, oy);
+    this._drawMultiplierLabel(ctx, unit, ox, oy, state.multiplier, state.effects);
   }
 
   /**
@@ -325,34 +358,62 @@ export class Renderer {
   }
 
   /**
-   * Center frame shows KO (classic fighting HUD).
+   * Center square shows the live Hi/Lo multiplier (1x, 2x, 4x…).
+   * Gold at 1x, green while climbing, brief red flash on bust.
    * @param {CanvasRenderingContext2D} ctx
    * @param {number} unit
    * @param {number} ox
    * @param {number} oy
+   * @param {number} multiplier
+   * @param {import('./effects.js').EffectsSystem} fx
    */
-  _drawKoLabel(ctx, unit, ox, oy) {
+  _drawMultiplierLabel(ctx, unit, ox, oy, multiplier, fx) {
+    const n = Number(multiplier) || 1;
+    const label =
+      n >= 100 ? `${Math.round(n)}x` : Number.isInteger(n) ? `${n}.00x` : `${n.toFixed(2)}x`;
+
     const c = HUD.CENTER;
     const x = ox + c.x * unit;
     const y = oy + c.y * unit;
     const w = c.w * unit;
     const h = c.h * unit;
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const maxW = w * 0.88;
+    const maxH = h * 0.7;
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-    ctx.lineWidth = 8;
-    const size = Math.max(31, Math.round(22 * unit * 3 * 0.65));
+
+    let size = Math.floor(Math.min(maxH, w * (label.length <= 4 ? 0.32 : 0.22)));
+    size = Math.max(10, size);
     ctx.font = `bold ${size}px "Press Start 2P", monospace`;
+    while (size > 9 && ctx.measureText(label).width > maxW) {
+      size -= 1;
+      ctx.font = `bold ${size}px "Press Start 2P", monospace`;
+    }
+
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.lineWidth = Math.max(3, Math.round(size * 0.2));
 
     const grad = ctx.createLinearGradient(x, y, x, y + h);
-    grad.addColorStop(0, '#ffe566');
-    grad.addColorStop(0.55, '#ff9a1a');
-    grad.addColorStop(1, '#e04810');
+    if (fx?.multiplierTint?.active) {
+      grad.addColorStop(0, '#ffb0b0');
+      grad.addColorStop(0.55, '#ff5555');
+      grad.addColorStop(1, '#b01020');
+    } else if (n > 1) {
+      grad.addColorStop(0, '#7dff9a');
+      grad.addColorStop(0.55, '#3ecf6e');
+      grad.addColorStop(1, '#1f8f42');
+    } else {
+      grad.addColorStop(0, '#ffe566');
+      grad.addColorStop(0.55, '#ff9a1a');
+      grad.addColorStop(1, '#e04810');
+    }
     ctx.fillStyle = grad;
 
-    ctx.strokeText('KO', x + w / 2, y + h / 2);
-    ctx.fillText('KO', x + w / 2, y + h / 2);
+    ctx.strokeText(label, cx, cy);
+    ctx.fillText(label, cx, cy);
   }
 
   /**
@@ -381,10 +442,11 @@ export class Renderer {
 
     ctx.textAlign = 'center';
     ctx.fillStyle = `rgba(255, 215, 0, ${pulse})`;
-    ctx.font = 'bold 22px "Press Start 2P", monospace';
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 5;
-    const msg = 'SPECIAL ATTACK READY!';
+    const msg = fx.specialBanner.text || 'SPECIAL ATTACK READY!';
+    const size = msg.length > 22 ? 16 : 22;
+    ctx.font = `bold ${size}px "Press Start 2P", monospace`;
     ctx.strokeText(msg, CANVAS.WIDTH / 2, CANVAS.HEIGHT / 2 + 8);
     ctx.fillText(msg, CANVAS.WIDTH / 2, CANVAS.HEIGHT / 2 + 8);
   }

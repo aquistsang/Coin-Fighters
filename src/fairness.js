@@ -67,10 +67,10 @@ export class Fairness {
   }
 
   shortHash() {
-    return this.serverSeedHash ? `${this.serverSeedHash.slice(0, 10)}…` : '—';
+    return this.serverSeedHash || '—';
   }
 
   shortClient() {
-    return this.clientSeed ? `${this.clientSeed.slice(0, 8)}…` : '—';
+    return this.clientSeed || '—';
   }
 }

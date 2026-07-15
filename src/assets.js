@@ -80,7 +80,7 @@ export const assets = {
   opponentFighter: /** @type {HTMLImageElement | HTMLCanvasElement | null} */ (null),
   opponentPunch: /** @type {HTMLImageElement | HTMLCanvasElement | null} */ (null),
   playerKick: /** @type {HTMLImageElement | HTMLCanvasElement | null} */ (null),
-  stageBackground: /** @type {HTMLImageElement | null} */ (null),
+  stageBackground: /** @type {HTMLVideoElement | HTMLImageElement | null} */ (null),
   hudOverlay: /** @type {HTMLImageElement | HTMLCanvasElement | null} */ (null),
   loaded: false,
 };
@@ -95,7 +95,7 @@ export async function loadAssets() {
     loadImage('assets/player-kick.png'),
     loadImage('assets/opponent-fighter.png'),
     loadImage('assets/opponent-punch.png'),
-    loadImage('assets/stage-background.png'),
+    loadVideo('assets/stage-background.mp4'),
     loadImage('assets/hud-overlay.png'),
   ]);
 
@@ -113,6 +113,8 @@ export async function loadAssets() {
   assets.stageBackground = stageBackground;
   assets.hudOverlay = hudRaw;
   assets.loaded = true;
+
+  startStageVideo();
 }
 
 /** @param {string} src @returns {Promise<HTMLImageElement>} */
@@ -123,6 +125,63 @@ function loadImage(src) {
     img.onerror = () => reject(new Error(`Failed to load: ${src}`));
     img.src = src;
   });
+}
+
+/**
+ * Looping muted stage plate (autoplay-friendly).
+ * @param {string} src
+ * @param {{ loop?: boolean, muted?: boolean }} [opts]
+ * @returns {Promise<HTMLVideoElement>}
+ */
+function loadVideo(src, opts = {}) {
+  const loop = opts.loop !== false;
+  const muted = opts.muted !== false;
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.muted = muted;
+    video.defaultMuted = muted;
+    video.loop = loop;
+    video.playsInline = true;
+    video.setAttribute('playsinline', '');
+    video.setAttribute('webkit-playsinline', '');
+    video.preload = 'auto';
+    // Absolute-ish path from site root so moves into the DOM still resolve
+    video.src = new URL(src, window.location.href).href;
+
+    let settled = false;
+    const ok = () => {
+      if (settled) return;
+      settled = true;
+      resolve(video);
+    };
+    const fail = () => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(`Failed to load: ${src}`));
+    };
+    video.addEventListener('loadeddata', ok, { once: true });
+    video.addEventListener('canplay', ok, { once: true });
+    video.addEventListener('error', fail, { once: true });
+    // Some browsers never fire loadeddata for large muted files if not attached —
+    // fall through after a short wait if readyState already advanced
+    window.setTimeout(() => {
+      if (!settled && video.readyState >= 2) ok();
+    }, 2500);
+    video.load();
+  });
+}
+
+/** Resume looping stage video after load / user gesture. */
+export function startStageVideo() {
+  const bg = assets.stageBackground;
+  if (!(bg instanceof HTMLVideoElement)) return;
+  bg.muted = true;
+  const play = bg.play();
+  if (play && typeof play.catch === 'function') {
+    play.catch(() => {
+      // Browsers may block until a click — unlocked on first bet
+    });
+  }
 }
 
 /**
